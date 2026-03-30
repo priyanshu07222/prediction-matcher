@@ -10,8 +10,12 @@ use futures_util::StreamExt as _;
 use prediction_matcher::protocol::{reply_list_key, QueuedOrder, FILLS_CHANNEL, ORDERS_QUEUE};
 use prediction_matcher::{OrderBookSnapshot, Side};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::broadcast;
+
+static REPLY_KEY_SEQ: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone)]
 struct AppState {
@@ -33,7 +37,7 @@ struct OrderAccepted {
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let redis_url =
         std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
     let matcher_base =
@@ -62,9 +66,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/ws", get(ws_upgrade))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(&api_addr)
-        .await
-        .map_err(|e| anyhow::anyhow!("bind API_ADDR {api_addr}: {e}"))?;
+    let listener = tokio::net::TcpListener::bind(&api_addr).await?;
     eprintln!("API listening on http://{api_addr}");
     axum::serve(listener, app).await?;
     Ok(())
@@ -78,7 +80,15 @@ async fn post_order(
         return Err((StatusCode::BAD_REQUEST, "qty must be positive".into()));
     }
 
-    let reply_key = uuid::Uuid::new_v4().to_string();
+    let reply_key = format!(
+        "{}-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos(),
+        REPLY_KEY_SEQ.fetch_add(1, Ordering::Relaxed)
+    );
     let queued = QueuedOrder {
         side: body.side,
         price: body.price,

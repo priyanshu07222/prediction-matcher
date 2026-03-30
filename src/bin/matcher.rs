@@ -1,6 +1,5 @@
 //! Single matcher process: consumes orders from Redis, owns the [`OrderBook`], publishes fills.
 
-use anyhow::Context;
 use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -17,16 +16,14 @@ struct AppState {
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let redis_url =
         std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
     let http_addr =
         std::env::var("MATCHER_HTTP_ADDR").unwrap_or_else(|_| "0.0.0.0:4001".to_string());
 
-    let client = redis::Client::open(redis_url).context("invalid REDIS_URL")?;
-    let redis = redis::aio::ConnectionManager::new(client)
-        .await
-        .context("connect to Redis")?;
+    let client = redis::Client::open(redis_url)?;
+    let redis = redis::aio::ConnectionManager::new(client).await?;
 
     let book = Arc::new(Mutex::new(OrderBook::new()));
     let next_id = Arc::new(AtomicU64::new(1));
@@ -38,9 +35,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/orderbook", get(get_orderbook))
         .with_state(AppState { book });
 
-    let listener = tokio::net::TcpListener::bind(&http_addr)
-        .await
-        .with_context(|| format!("bind matcher HTTP {http_addr}"))?;
+    let listener = tokio::net::TcpListener::bind(&http_addr).await?;
     eprintln!("matcher HTTP listening on http://{http_addr}");
     axum::serve(listener, app).await?;
     Ok(())

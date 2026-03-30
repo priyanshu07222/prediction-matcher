@@ -169,6 +169,27 @@ impl OrderBook {
     }
 }
 
+/// Redis keys and wire formats shared by the matcher and API processes.
+pub mod protocol {
+    /// List: API `RPUSH`es JSON [`QueuedOrder`]; matcher `BRPOP`s (single consumer).
+    pub const ORDERS_QUEUE: &str = "orders:incoming";
+    /// Pub/sub channel: matcher `PUBLISH`es each [`super::Fill`] as JSON.
+    pub const FILLS_CHANNEL: &str = "fills:events";
+
+    /// List used for async HTTP response: matcher `LPUSH`es the assigned order id; API `BRPOP`s.
+    pub fn reply_list_key(reply_key: &str) -> String {
+        format!("order:reply:{reply_key}")
+    }
+
+    #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+    pub struct QueuedOrder {
+        pub side: super::Side,
+        pub price: u64,
+        pub qty: u64,
+        pub reply_key: String,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

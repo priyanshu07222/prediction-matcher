@@ -42,6 +42,29 @@ flowchart LR
 - **Orders:** each API pushes work into Redis; the matcher pulls from the queue **one at a time** (no double-match).
 - **Fills:** matcher publishes to Redis; **every** API receives the same stream and pushes to its own WebSocket clients.
 
+### User flow (client view)
+
+A user (or app) only talks to an **API** URL—often behind a load balancer with **several identical API instances** behind it. The flow is the same whichever instance handles the request.
+
+```mermaid
+flowchart TD
+  U[User or app]
+  U -->|1 - Submit| PO["POST /orders JSON"]
+  U -->|2 - Snapshot| GO[GET /orderbook]
+  U -->|3 - Live fills| WS[WebSocket /ws]
+  PO --> ID[Response: order id]
+  GO --> BK[Response: bids and asks]
+  WS --> FL[Push: each Fill as JSON]
+```
+
+**Typical usage:**
+
+1. **Submit an order** — `POST /orders` with `side`, `price`, `qty`. The response is **`{ "id": … }`**. The order is queued and matched asynchronously; you do not need to pick a “special” API—any instance is fine.
+2. **Inspect the book** — `GET /orderbook` returns aggregated **bids** and **asks** (same data from any API, because it is proxied from the matcher).
+3. **Watch trades** — Open a **WebSocket** to `/ws` on the same base URL (or another API instance). Whenever the matcher produces a **fill**, you receive a **Fill** JSON message on the socket. You can keep this open while also placing more orders.
+
+Steps 2 and 3 can run in parallel (e.g. show the book in a UI while a WebSocket updates a “recent fills” list).
+
 ### Flow: `POST /orders`
 
 1. Client sends JSON `{ side, price, qty }` to **any** API instance.

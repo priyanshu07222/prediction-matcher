@@ -50,7 +50,16 @@ flowchart TD
 
 ## Run locally
 
-**Rust**, **Docker** (Redis).
+**Rust**, **Docker** (Redis). Defaults match local dev—**you do not need to set `REDIS_URL` in the shell** unless Redis or ports differ.
+
+| If unset | Default |
+|----------|---------|
+| `REDIS_URL` | `redis://127.0.0.1:6379` |
+| `MATCHER_HTTP_ADDR` | `0.0.0.0:4001` (matcher HTTP) |
+| `MATCHER_HTTP_URL` | `http://127.0.0.1:4001` (API → matcher) |
+| `API_ADDR` | `0.0.0.0:3000` (API HTTP) |
+
+Optional: copy [`.env.example`](.env.example) to **`.env`** (gitignored); both binaries load it automatically via [`dotenvy`](https://crates.io/crates/dotenvy).
 
 ```bash
 docker compose up -d
@@ -59,13 +68,13 @@ docker compose up -d
 **Terminal 1 — matcher**
 
 ```bash
-REDIS_URL=redis://127.0.0.1:6379 cargo run --bin matcher
+cargo run --bin matcher
 ```
 
 **Terminal 2 — API**
 
 ```bash
-REDIS_URL=redis://127.0.0.1:6379 MATCHER_HTTP_URL=http://127.0.0.1:4001 cargo run
+cargo run
 ```
 
 ```bash
@@ -74,17 +83,16 @@ curl -s -X POST http://127.0.0.1:3000/orders -H 'Content-Type: application/json'
   -d '{"side":"buy","price":100,"qty":1}'
 ```
 
-[`.env.example`](.env.example) lists env vars.
+### Postman / Insomnia / browser
 
-**Two APIs (different ports, same Redis + matcher):**
+Base URL: **`http://127.0.0.1:3000`** (same defaults—no env in the client).
 
-```bash
-REDIS_URL=redis://127.0.0.1:6379 MATCHER_HTTP_URL=http://127.0.0.1:4001 API_ADDR=0.0.0.0:3000 cargo run
-```
+- `GET http://127.0.0.1:3000/orderbook`
+- `POST http://127.0.0.1:3000/orders` — Body → raw JSON → `{"side":"buy","price":100,"qty":1}`
 
-```bash
-REDIS_URL=redis://127.0.0.1:6379 MATCHER_HTTP_URL=http://127.0.0.1:4001 API_ADDR=0.0.0.0:3001 cargo run
-```
+WebSocket URL: **`ws://127.0.0.1:3000/ws`**
+
+**Second API instance** (e.g. port 3001): `API_ADDR=0.0.0.0:3001 cargo run` in another terminal (still use the same Redis + matcher).
 
 ## HTTP API
 

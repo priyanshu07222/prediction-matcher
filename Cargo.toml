@@ -9,6 +9,7 @@ name = "matcher"
 path = "src/bin/matcher.rs"
 
 [dependencies]
+dotenvy = "0.15"
 axum = { version = "0.7", features = ["json", "ws"] }
 futures-util = "0.3"
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }

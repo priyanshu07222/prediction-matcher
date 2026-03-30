@@ -20,41 +20,27 @@ The system splits **HTTP/WebSocket frontends** (horizontally scalable) from **ma
 | **Matcher** (`matcher` binary) | Consumes the order queue, assigns IDs, runs `submit_order`, publishes fills, serves authoritative **`GET /orderbook`** | [`src/bin/matcher.rs`](src/bin/matcher.rs) |
 | **API** (`prediction-matcher` binary) | Stateless: enqueue orders, wait for id, proxy orderbook, fan out fills over WebSocket | [`src/main.rs`](src/main.rs) |
 
-### High-level diagram
+### Multiple API instances (the important picture)
+
+You can run **two or more API processes** on different ports (or machines). They all talk to the **same Redis** and the **same matcher**. Clients may hit **any** API; matching still happens in **one** place.
 
 ```mermaid
-flowchart TB
-  subgraph clients [Clients]
-    HC[HTTP clients]
-    WC[WebSocket clients]
+flowchart LR
+  subgraph apis [Stateless APIs]
+    A1[API]
+    A2[API]
+    A3["+ more"]
   end
-  subgraph api [API instances stateless]
-    A1[API :3000]
-    A2[API :3001]
-  end
-  subgraph redis [Redis]
-    LQ["List orders:incoming"]
-    RL["Lists order:reply:..."]
-    PS["Pub/Sub fills:events"]
-  end
-  subgraph matcher [Matcher single process]
-    OB[OrderBook in memory]
-  end
-  HC --> A1
-  HC --> A2
-  WC --> A1
-  WC --> A2
-  A1 --> LQ
-  A2 --> LQ
-  LQ --> matcher
-  matcher --> OB
-  matcher --> RL
-  matcher --> PS
-  A1 --> RL
-  A2 --> RL
-  PS --> A1
-  PS --> A2
+  R[(Redis)]
+  M[Matcher + book]
+  A1 --> R
+  A2 --> R
+  A3 --> R
+  R --> M
 ```
+
+- **Orders:** each API pushes work into Redis; the matcher pulls from the queue **one at a time** (no double-match).
+- **Fills:** matcher publishes to Redis; **every** API receives the same stream and pushes to its own WebSocket clients.
 
 ### Flow: `POST /orders`
 
@@ -64,22 +50,6 @@ flowchart TB
 4. API returns **`{ "id": … }`** to the client.
 
 Only the matcher pops from **`orders:incoming`**, so each order is processed **exactly once** no matter how many APIs enqueue.
-
-```mermaid
-sequenceDiagram
-  participant C as Client
-  participant A as API
-  participant R as Redis
-  participant M as Matcher
-  C->>A: POST /orders
-  A->>R: RPUSH orders:incoming
-  M->>R: BRPOP orders:incoming
-  M->>M: submit_order on OrderBook
-  M->>R: PUBLISH fills:events for each Fill
-  M->>R: LPUSH order:reply:key with id
-  A->>R: BRPOP order:reply:key
-  A->>C: JSON id
-```
 
 ### Flow: `GET /orderbook`
 

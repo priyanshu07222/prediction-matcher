@@ -118,7 +118,19 @@ Matcher throughput, Redis, no persistence, blocking/timeouts on queue replies, W
 
 ### 4. What would you build next if you had another 4 hours?
 
-WAL + snapshot, metrics, stricter validation, Redis integration tests, backpressure on pub/sub.
+Prioritize **things users actually feel**: orders that disappear on restart, confusing errors, and slow or blocked responses.
+
+1. **Durability** — Append-only **write-ahead log** of orders and fills plus periodic **snapshots** of the book so a matcher restart **does not wipe** resting orders or trade history. Users should not lose work because a process bounced.
+
+2. **Clearer failure modes** — When Redis or the matcher is down, **`POST /orders`** should return a **specific** error (503 + body) instead of timing out opaquely. Same for **WebSocket** disconnects: document **reconnect + optional “fills since id”** so clients can recover without missing fills silently.
+
+3. **Observability** — **Metrics** (queue depth, match latency, pub/sub lag) and structured logs so we see **before** users hit pain: stuck queues, slow matcher, starving WebSockets.
+
+4. **Safety nets** — **Idempotency keys** on `POST /orders` (optional header) so duplicate submits from flaky clients don’t create duplicate orders. **Rate limits** per IP/API key to protect the shared matcher.
+
+5. **Confidence in changes** — **Integration tests** against Redis (queue + pub/sub + reply lists) so refactors don’t break the multi-API flow.
+
+That order reflects **user trust first** (data and errors), then **operability**, then **tests**—not feature sprawl.
 
 ## Development
 

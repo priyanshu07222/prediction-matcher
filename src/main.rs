@@ -9,7 +9,6 @@ use axum::{Json, Router};
 use futures_util::StreamExt as _;
 use prediction_matcher::protocol::{reply_list_key, QueuedOrder, FILLS_CHANNEL, ORDERS_QUEUE};
 use prediction_matcher::{OrderBookSnapshot, Side};
-use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -90,13 +89,18 @@ async fn post_order(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let mut conn = state.redis.clone();
-    conn.rpush::<_, _, ()>(ORDERS_QUEUE, payload)
+    let _: () = redis::cmd("RPUSH")
+        .arg(ORDERS_QUEUE)
+        .arg(&payload)
+        .query_async(&mut conn)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let list_key = reply_list_key(&reply_key);
-    let popped: Option<(String, String)> = conn
-        .brpop::<_, Option<(String, String)>>(&list_key, 10.0)
+    let popped: Option<(String, String)> = redis::cmd("BRPOP")
+        .arg(&list_key)
+        .arg(10_i64)
+        .query_async(&mut conn)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -107,8 +111,8 @@ async fn post_order(
         )
     })?;
 
-    let id: u64 = id_str
-        .parse()
+    let id = id_str
+        .parse::<u64>()
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "invalid order id".into()))?;
 
     Ok(Json(OrderAccepted { id }))

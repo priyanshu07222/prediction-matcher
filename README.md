@@ -118,19 +118,28 @@ Matcher throughput, Redis, no persistence, blocking/timeouts on queue replies, W
 
 ### 4. What would you build next if you had another 4 hours?
 
-Prioritize **things users actually feel**: orders that disappear on restart, confusing errors, and slow or blocked responses.
+I would focus on removing the biggest architectural limitation first: the matcher being a **single bottleneck**.
 
-1. **Durability** — Append-only **write-ahead log** of orders and fills plus periodic **snapshots** of the book so a matcher restart **does not wipe** resting orders or trade history. Users should not lose work because a process bounced.
+Right now, correctness is guaranteed by having a single matcher process, but this limits throughput and makes the system fragile under load.
 
-2. **Clearer failure modes** — When Redis or the matcher is down, **`POST /orders`** should return a **specific** error (503 + body) instead of timing out opaquely. Same for **WebSocket** disconnects: document **reconnect + optional “fills since id”** so clients can recover without missing fills silently.
+If I had more time, I would:
 
-3. **Observability** — **Metrics** (queue depth, match latency, pub/sub lag) and structured logs so we see **before** users hit pain: stuck queues, slow matcher, starving WebSockets.
+1. **Partition the orderbook (horizontal scaling)**  
+   Split the system by market (or instrument), so each partition has its own independent matcher. This allows matching to scale horizontally while preserving price-time priority within each market.
 
-4. **Safety nets** — **Idempotency keys** on `POST /orders` (optional header) so duplicate submits from flaky clients don’t create duplicate orders. **Rate limits** per IP/API key to protect the shared matcher.
+2. **Introduce a durable event log (WAL)**  
+   Instead of relying purely on in-memory state + Redis, I would persist all orders and fills to an append-only log. This enables recovery, replay, and auditing — critical for any trading system.
 
-5. **Confidence in changes** — **Integration tests** against Redis (queue + pub/sub + reply lists) so refactors don’t break the multi-API flow.
+3. **Decouple ingestion from matching via a queue**  
+   Replace direct Redis list usage with a more explicit message queue (e.g., streams or Kafka-like abstraction), making backpressure and retries more predictable.
 
-That order reflects **user trust first** (data and errors), then **operability**, then **tests**—not feature sprawl.
+4. **Reduce latency in the hot path**  
+   Move the orderbook fully in-memory inside the matcher and minimize Redis round trips, using Redis only for coordination and pub/sub.
+
+5. **Add idempotency + exactly-once semantics**  
+   Ensure duplicate order submissions (due to retries or network issues) do not create duplicate executions.
+
+The goal of these changes is to evolve the system from a correct prototype into something that can scale without sacrificing determinism or consistency.
 
 ## Development
 
